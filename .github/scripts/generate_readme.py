@@ -14,10 +14,7 @@ BADGE_ACCENT = "7c6ff7"
 REPOSITORY = os.environ.get("GITHUB_REPOSITORY", "kharkwalsuraj/wallpapers")
 BRANCH = os.environ.get("GITHUB_REF_NAME", "main")
 
-IMAGE_EXTENSIONS = {
-    ".jpg", ".jpeg", ".png", ".webp", ".avif",
-    ".gif", ".bmp", ".tif", ".tiff",
-}
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".avif", ".gif", ".bmp", ".tif", ".tiff"}
 
 ROOT = Path(__file__).resolve().parents[2]
 README_DIR = ROOT / ".github"
@@ -77,10 +74,7 @@ def download_url(path: Path) -> str:
     """Build a GitHub download URL."""
     image_path = quote(path.relative_to(ROOT).as_posix(), safe="/")
     branch = quote(BRANCH, safe="")
-    return (
-        f"https://github.com/{REPOSITORY}/raw/"
-        f"refs/heads/{branch}/{image_path}?download=1"
-    )
+    return f"https://github.com/{REPOSITORY}/raw/refs/heads/{branch}/{image_path}?download=1"
 
 
 def overview(files: list[Path], images: list[Path]) -> str:
@@ -166,7 +160,7 @@ def generate_readme() -> None:
         gallery(images),
     ))
 
-    README_PATH.write_text(content + "\n", encoding="utf-8")
+    README_FILE.write_text(content + "\n", encoding="utf-8")
 
 if __name__ == "__main__":
     generate_readme()
