@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import os
+import zipfile
 from dataclasses import dataclass
 from html import escape
 from pathlib import Path
@@ -15,6 +16,7 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".avif", ".gif", ".bmp", "
 ROOT = Path(__file__).resolve().parents[2]
 README_DIR = ROOT / ".github"
 README_FILE = README_DIR / "README.md"
+WALLPAPERS_ZIP = README_DIR / "wallpapers.zip"
 REPOSITORY = os.environ.get("GITHUB_REPOSITORY", "kharkwalsuraj/wallpapers")
 BRANCH = os.environ.get("GITHUB_REF_NAME", "main")
 
@@ -24,9 +26,6 @@ class StructImg:
     name: str
     source: Path
     dimension: tuple[int, int]
-
-    # TODO: Restore this field when the download button is implemented.
-    # download_url: str
 
 
 def format_size(size: int) -> str:
@@ -59,10 +58,9 @@ def preview_url(path: Path) -> str:
     return quote(relative.replace(os.sep, "/"), safe="/")
 
 
-# TODO: Revisit this implementation when adding the download button.
-# I had trouble getting GitHub to download the original image reliably
-# instead of opening it in the browser. If anyone knows a reliable
-# solution, contributions are welcome!
+# TODO: Revisit individual downloads.
+# I had trouble getting GitHub to download original images reliably
+# instead of opening them in the browser. Contributions are welcome!
 #
 # def download_url(path: Path) -> str:
 #     image_path = quote(path.relative_to(ROOT).as_posix(), safe="/")
@@ -74,38 +72,32 @@ def preview_url(path: Path) -> str:
 
 
 def card(image: StructImg) -> str:
-    """Generate a full-width wallpaper gallery card."""
+    """Generate a wallpaper card that fills its column."""
     width, height = image.dimension
     dimensions = f"{width} × {height}"
     size = format_size(image.source.stat().st_size)
     name = escape(image.name, quote=True)
     source = preview_url(image.source)
 
-    # TODO: Add a download button when a reliable solution is found.
-    # download = image.download_url
-    # download_badge = badge("download", "PNG", "github")
-
     return (
-        "<td width='50%' valign='top' align='center' "
-        "style='width:50%;padding:4px;'>"
+        "<td width='50%' valign='top' "
+        "style='width:50%;padding:0;'>"
         f"<a href='{source}'>"
         f"<img src='{source}' alt='{name}' "
         "width='100%' "
-        "style='display:block;width:100%;height:auto;'>"
+        "style='display:block;width:100%;height:auto;border:0;'>"
         "</a>"
         "<div align='center'>"
         f"<div>{name}</div>"
         f"<div><code>{dimensions}</code>&nbsp;·&nbsp;"
         f"<code>{size}</code></div>"
-        # Uncomment when the download feature works:
-        # f"<div><a href='{download}'>{download_badge}</a></div>"
         "</div>"
         "</td>"
     )
 
 
 def gallery(images: list[StructImg]) -> str:
-    """Generate a full-width, two-column wallpaper gallery."""
+    """Generate a full-width gallery with two equal columns."""
     if not images:
         return "<p>No wallpapers found.</p>"
 
@@ -116,18 +108,19 @@ def gallery(images: list[StructImg]) -> str:
         cells = "".join(card(image) for image in batch)
 
         if len(batch) < COLUMNS:
-            cells += ("<td width='50%' style='width:50%;padding:4px;'></td>")
+            cells += "<td width='50%' style='width:50%;padding:0;'></td>"
 
         rows.append(f"<tr>{cells}</tr>")
 
     return (
         "<table width='100%' cellpadding='0' cellspacing='0' border='0' "
-        "style='width:100%;table-layout:fixed;border-collapse:collapse;'>"
+        "style='width:100%;max-width:none;table-layout:fixed;"
+        "border-collapse:collapse;margin:0;padding:0;'>"
         f"<tbody>{''.join(rows)}</tbody></table>"
     )
 
 
-# Find wallpapers and read their dimensions.
+# Find wallpapers.
 images = []
 
 for file in ROOT.rglob("*"):
@@ -149,21 +142,22 @@ for file in ROOT.rglob("*"):
         print(f"Skipping invalid image: {file}")
         continue
 
-    images.append(StructImg(
-        name=file.name,
-        source=file,
-        dimension=dimensions,
-        # download_url=download_url(file),
-    ))
+    images.append(StructImg(name=file.name, source=file, dimension=dimensions))
 
 
-# Calculate total repository content size.
+# Calculate repository content size, excluding .git and .github.
 file_bytes = sum(
     file.stat().st_size
     for file in ROOT.rglob("*")
     if file.is_file()
     and not any(part in {".git", ".github"} for part in file.relative_to(ROOT).parts)
 )
+
+# Generate Readme
+README_DIR.mkdir(parents=True, exist_ok=True)
+
+# Repository ZIP download.
+repository_zip = (f"https://github.com/{REPOSITORY}/archive/refs/heads/" f"{quote(BRANCH, safe='')}.zip")
 
 # Generate README content.
 content = "\n\n".join((
@@ -176,8 +170,12 @@ content = "\n\n".join((
     "</div>",
 
     "<div align='center'>"
-    f"{badge('Repository Size', format_size(file_bytes), 'github')} "
+    f"<a href='{repository_zip}'>"
+    f"{badge('Repository Size', format_size(file_bytes), 'github')}"
+    "</a> "
+    f"<a href='{repository_zip}'>"
     f"{badge('Wallpapers', str(len(images)), 'googlephotos')}"
+    "</a>"
     "</div>",
 
     "<h2 align='center'>Domain Expansion: Wallpaper Gallery</h2>",
@@ -185,9 +183,10 @@ content = "\n\n".join((
     gallery(images),
 ))
 
-README_DIR.mkdir(parents=True, exist_ok=True)
 README_FILE.write_text(content + "\n", encoding="utf-8")
 
 print(f"README generated: {README_FILE}")
 print(f"Wallpapers: {len(images)}")
 print(f"Repository content size: {format_size(file_bytes)}")
+print(f"Wallpaper ZIP generated: {WALLPAPERS_ZIP}")
+print(f"Wallpaper ZIP size: {format_size(WALLPAPERS_ZIP.stat().st_size)}")
