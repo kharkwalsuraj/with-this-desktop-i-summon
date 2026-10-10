@@ -1,25 +1,29 @@
-#!/usr/bin/env python3
-
-
 import os
-
-
+from dataclasses import dataclass
 from html import escape
 from pathlib import Path
 from urllib.parse import quote
+
 from PIL import Image
 
 
 BADGE_BG = "30363d"
 BADGE_ACCENT = "7c6ff7"
-REPOSITORY = os.environ.get("GITHUB_REPOSITORY", "kharkwalsuraj/wallpapers")
-BRANCH = os.environ.get("GITHUB_REF_NAME", "main")
+COLUMNS = 2
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".avif", ".gif", ".bmp", ".tif", ".tiff"}
 ROOT = Path(__file__).resolve().parents[2]
 README_DIR = ROOT / ".github"
 README_FILE = README_DIR / "README.md"
-COLUMNS = 2
-FALLBACK_ASPECT_RATIO = 16 / 9
+REPOSITORY = os.environ.get("GITHUB_REPOSITORY", "kharkwalsuraj/wallpapers")
+BRANCH = os.environ.get("GITHUB_REF_NAME", "main")
+
+
+@dataclass
+class StructImg:
+    name: str
+    source: Path
+    download_url: str
+    dimension: tuple[int, int]
 
 
 def format_size(size: int) -> str:
@@ -45,76 +49,6 @@ def badge(key: str, value: str, icon: str = "") -> str:
     )
 
 
-def ensure_png(image_path: Path) -> Path:
-    """Convert an image to PNG and return its final path."""
-    image_path = Path(image_path)
-
-    with Image.open(image_path) as image:
-        if image.format == "PNG":
-            return image_path
-
-        image.load()
-        has_alpha = ("A" in image.getbands() or "transparency" in image.info)
-        converted = image.convert("RGBA" if has_alpha else "RGB")
-
-    png_path = image_path.with_suffix(".png")
-
-    if png_path.exists():
-        raise FileExistsError(f"Cannot convert {image_path}: {png_path} already exists")
-
-    converted.save(png_path, format="PNG")
-    image_path.unlink()
-
-    return png_path
-
-
-def get_images() -> list[Path]:
-    """Find repository images, convert them to PNG, and return their paths."""
-    images = []
-
-    for directory, dirs, names in os.walk(ROOT):
-        dirs[:] = [d for d in dirs if d not in {".git", ".github"}]
-
-        for name in names:
-            path = Path(directory) / name
-
-            if path.suffix.lower() in IMAGE_EXTENSIONS:
-                images.append(ensure_png(path))
-
-    return images
-
-
-def get_files() -> list[Path]:
-    """List repository files excluding Git internals and .github."""
-    files = []
-
-    for directory, dirs, names in os.walk(ROOT):
-        dirs[:] = [d for d in dirs if d not in {".git", ".github"}]
-        files.extend(Path(directory) / name for name in names)
-
-    return files
-
-
-def image_dimensions(path: Path) -> tuple[int, int]:
-    """Return the image width and height."""
-    with Image.open(path) as image:
-        return image.size
-
-def get_images() -> list[Path]:
-    """Find all repository images, convert them to PNG, and return their paths."""
-    images = []
-
-    for directory, dirs, names in os.walk(ROOT):
-        dirs[:] = [d for d in dirs if d not in {".git", ".github"}]
-
-        for name in names:
-            path = Path(directory) / name
-
-            if path.suffix.lower() in IMAGE_EXTENSIONS:
-                images.append(ensure_png(path))
-
-    return images
-
 def preview_url(path: Path) -> str:
     """Return an image path relative to .github/README.md."""
     relative = os.path.relpath(path, start=README_DIR)
@@ -128,39 +62,18 @@ def download_url(path: Path) -> str:
     return f"https://github.com/{REPOSITORY}/raw/refs/heads/{branch}/{image_path}?download=1"
 
 
-def overview(files: list[Path], images: list[Path]) -> str:
-    """Generate repository statistics."""
-    size = sum(path.stat().st_size for path in files)
-
-    return (
-        "<div align='center'>"
-        f"{badge('Repository Size', format_size(size), 'github')} "
-        f"{badge('Wallpapers', str(len(images)), 'googlephotos')}"
-        "</div>"
-    )
-
-
-def card(path: Path) -> str:
-    """Generate a wallpaper card with stable image dimensions."""
-    name = escape(path.name, quote=True)
-    source = escape(preview_url(path), quote=True)
-    download = escape(download_url(path), quote=True)
-    size = format_size(path.stat().st_size)
-
-    try:
-        width, height = image_dimensions(path)
-        if width <= 0 or height <= 0:
-            raise ValueError("Invalid image dimensions")
-        dimensions = f"{width:,} × {height:,}"
-    except (OSError, ValueError):
-        width, height = 1980, 1080
-        dimensions = "Unknown dimensions"
-
-    download_badge = badge("Download", "Original")
+def card(image: StructImg) -> str:
+    """Generate a wallpaper gallery card."""
+    dimensions = f"{image.dimension[0]} × {image.dimension[1]}"
+    size = format_size(image.source.stat().st_size)
+    name = escape(image.name, quote=True)
+    source = preview_url(image.source)
+    download = image.download_url
+    download_badge = badge("download", "PNG", "github")
 
     return (
         f"<td width='50%' valign='top' align='center'>"
-        f"<a href='{source}'><img src='{source}' alt='{name}' width='{width}' height='{height}'></a>"
+        f"<a href='{download}'><img src='{source}' alt='{name}' width='100%'></a>"
         f"<div align='center'><div>{name}</div>"
         f"<div><code>{dimensions}</code>&nbsp;·&nbsp;<code>{size}</code></div>"
         f"<div><a href='{download}' title='Download {name}'>{download_badge}</a></div>"
@@ -168,7 +81,7 @@ def card(path: Path) -> str:
     )
 
 
-def gallery(images: list[Path]) -> str:
+def gallery(images: list[StructImg]) -> str:
     """Generate a full-width, two-column gallery."""
     if not images:
         return "<p>No wallpapers found.</p>"
@@ -177,7 +90,7 @@ def gallery(images: list[Path]) -> str:
 
     for start in range(0, len(images), COLUMNS):
         batch = images[start:start + COLUMNS]
-        cells = "".join(card(path) for path in batch)
+        cells = "".join(card(image) for image in batch)
 
         if len(batch) < COLUMNS:
             cells += "<td width='50%'></td>"
@@ -191,26 +104,96 @@ def gallery(images: list[Path]) -> str:
     )
 
 
-def generate_readme() -> None:
-    """Generate .github/README.md."""
-    README_DIR.mkdir(parents=True, exist_ok=True)
+png_images = []
 
-    images = get_images()
+for file in ROOT.rglob("*"):
+    if not file.is_file():
+        continue
 
-    content = "\n\n".join((
-        "<div align='center'>"
-        "<h1>With This Desktop, I Summon...</h1>"
-        "<p><i>The finest pixels across heaven and earth.</i></p>"
-        "<p>A cursed collection of wallpapers capable of expanding domains, "
-        "activating neurons, and destroying your disk space. "
-        "Special grade backgrounds only. Nah, I'd touch grass.</p>"
-        "</div>",
-        overview(files, images),
-        "<h2 align='center'>Domain Expansion: Wallpaper Gallery</h2>",
-        gallery(images),
-    ))
+    if any(part in {".git", ".github"} for part in file.relative_to(ROOT).parts):
+        continue
 
-    README_FILE.write_text(content + "\n", encoding="utf-8")
+    if file.suffix.lower() not in IMAGE_EXTENSIONS:
+        continue
 
-if __name__ == "__main__":
-    generate_readme()
+    try:
+        # Keep existing PNGs.
+        if file.suffix.lower() == ".png":
+            with Image.open(file) as img:
+                width, height = img.size
+
+            png_images.append(StructImg(
+                name=file.name,
+                source=file,
+                download_url=download_url(file),
+                dimension=(width, height),
+            ))
+            continue
+
+        # Convert non-PNG images to PNG.
+        png_path = file.with_suffix(".png")
+
+        if png_path.exists():
+            print(f"Skipped {file.name}: {png_path.name} already exists")
+            continue
+
+        with Image.open(file) as img:
+            img.load()
+
+            if img.mode not in {"RGB", "RGBA"}:
+                img = img.convert("RGBA" if "transparency" in img.info else "RGB")
+
+            img.save(png_path, format="PNG")
+
+        # Verify the converted PNG before deleting the original.
+        with Image.open(png_path) as img:
+            img.verify()
+
+        with Image.open(png_path) as img:
+            width, height = img.size
+
+        # Delete the non-PNG file after successful conversion.
+        file.unlink()
+
+        png_images.append(StructImg(
+            name=png_path.name,
+            source=png_path,
+            download_url=download_url(png_path),
+            dimension=(width, height),
+        ))
+
+    except Exception as exc:
+        print(f"Failed to process {file.name}: {exc}")
+
+
+# Calculate the total repository content size after conversion.
+file_bytes = sum(
+    file.stat().st_size
+    for file in ROOT.rglob("*")
+    if file.is_file()
+    and not any(part in {".git", ".github"} for part in file.relative_to(ROOT).parts)
+)
+
+
+# Generate Readme
+content = "\n\n".join((
+    "<div align='center'>"
+    "<h1>With This Desktop, I Summon...</h1>"
+    "<p><i>The finest pixels across heaven and earth.</i></p>"
+    "<p>A cursed collection of wallpapers capable of expanding domains, "
+    "activating neurons, and destroying your disk space. "
+    "Special grade backgrounds only. Nah, I'd touch grass.</p>"
+    "</div>",
+    "<div align='center'>"
+    f"{badge('Repository Size', format_size(file_bytes), 'github')} "
+    f"{badge('Wallpapers', str(len(png_images)), 'googlephotos')}"
+    "</div>",
+    "<h2 align='center'>Domain Expansion: Wallpaper Gallery</h2>",
+    gallery(png_images),
+))
+
+README_FILE.write_text(content + "\n", encoding="utf-8")
+
+print(f"README generated: {README_FILE}")
+print(f"Wallpapers: {len(png_images)}")
+print(f"Repository content size: {format_size(file_bytes)}")
