@@ -1,9 +1,10 @@
+#!/usr/bin/env python3
+
 import os
 from dataclasses import dataclass
 from html import escape
 from pathlib import Path
 from urllib.parse import quote
-
 from PIL import Image
 
 
@@ -22,8 +23,10 @@ BRANCH = os.environ.get("GITHUB_REF_NAME", "main")
 class StructImg:
     name: str
     source: Path
-    download_url: str
     dimension: tuple[int, int]
+
+    # TODO: Restore this field when the download button is implemented.
+    # download_url: str
 
 
 def format_size(size: int) -> str:
@@ -32,6 +35,7 @@ def format_size(size: int) -> str:
         if size < 1024 or unit == "TB":
             return f"{size:.1f}{unit}" if unit != "B" else f"{size}B"
         size /= 1024
+
     return f"{size:.1f}TB"
 
 
@@ -39,7 +43,7 @@ def badge(key: str, value: str, icon: str = "") -> str:
     """Generate a Shields.io badge."""
     label = quote(key.replace("-", "--"), safe="")
     message = quote(value.replace("-", "--"), safe="")
-    logo = f"&amp;logo={quote(icon, safe='')}&amp;logoColor=white" if icon else ""
+    logo = (f"&amp;logo={quote(icon, safe='')}&amp;logoColor=white" if icon else "")
 
     return (
         f"<img src='https://img.shields.io/badge/"
@@ -55,34 +59,53 @@ def preview_url(path: Path) -> str:
     return quote(relative.replace(os.sep, "/"), safe="/")
 
 
-def download_url(path: Path) -> str:
-    """Build a GitHub download URL."""
-    image_path = quote(path.relative_to(ROOT).as_posix(), safe="/")
-    branch = quote(BRANCH, safe="")
-    return f"https://github.com/{REPOSITORY}/raw/refs/heads/{branch}/{image_path}?download=1"
+# TODO: Revisit this implementation when adding the download button.
+# I had trouble getting GitHub to download the original image reliably
+# instead of opening it in the browser. If anyone knows a reliable
+# solution, contributions are welcome!
+#
+# def download_url(path: Path) -> str:
+#     image_path = quote(path.relative_to(ROOT).as_posix(), safe="/")
+#     branch = quote(BRANCH, safe="")
+#     return (
+#         f"https://github.com/{REPOSITORY}/raw/refs/heads/"
+#         f"{branch}/{image_path}?download=1"
+#     )
 
 
 def card(image: StructImg) -> str:
-    """Generate a wallpaper gallery card."""
-    dimensions = f"{image.dimension[0]} × {image.dimension[1]}"
+    """Generate a full-width wallpaper gallery card."""
+    width, height = image.dimension
+    dimensions = f"{width} × {height}"
     size = format_size(image.source.stat().st_size)
     name = escape(image.name, quote=True)
     source = preview_url(image.source)
-    download = image.download_url
-    download_badge = badge("download", "PNG", "github")
+
+    # TODO: Add a download button when a reliable solution is found.
+    # download = image.download_url
+    # download_badge = badge("download", "PNG", "github")
 
     return (
-        f"<td width='50%' valign='top' align='center'>"
-        f"<a href='{download}'><img src='{source}' alt='{name}' width='100%'></a>"
-        f"<div align='center'><div>{name}</div>"
-        f"<div><code>{dimensions}</code>&nbsp;·&nbsp;<code>{size}</code></div>"
-        f"<div><a href='{download}' title='Download {name}'>{download_badge}</a></div>"
-        f"</div></td>"
+        "<td width='50%' valign='top' align='center' "
+        "style='width:50%;padding:4px;'>"
+        f"<a href='{source}'>"
+        f"<img src='{source}' alt='{name}' "
+        "width='100%' "
+        "style='display:block;width:100%;height:auto;'>"
+        "</a>"
+        "<div align='center'>"
+        f"<div>{name}</div>"
+        f"<div><code>{dimensions}</code>&nbsp;·&nbsp;"
+        f"<code>{size}</code></div>"
+        # Uncomment when the download feature works:
+        # f"<div><a href='{download}'>{download_badge}</a></div>"
+        "</div>"
+        "</td>"
     )
 
 
 def gallery(images: list[StructImg]) -> str:
-    """Generate a full-width, two-column gallery."""
+    """Generate a full-width, two-column wallpaper gallery."""
     if not images:
         return "<p>No wallpapers found.</p>"
 
@@ -93,80 +116,48 @@ def gallery(images: list[StructImg]) -> str:
         cells = "".join(card(image) for image in batch)
 
         if len(batch) < COLUMNS:
-            cells += "<td width='50%'></td>"
+            cells += ("<td width='50%' style='width:50%;padding:4px;'></td>")
 
         rows.append(f"<tr>{cells}</tr>")
 
     return (
-        "<table width='100%' cellpadding='0' cellspacing='0' "
-        "style='width:100%;border-collapse:collapse;'>"
+        "<table width='100%' cellpadding='0' cellspacing='0' border='0' "
+        "style='width:100%;table-layout:fixed;border-collapse:collapse;'>"
         f"<tbody>{''.join(rows)}</tbody></table>"
     )
 
 
-png_images = []
+# Find wallpapers and read their dimensions.
+images = []
 
 for file in ROOT.rglob("*"):
     if not file.is_file():
         continue
 
-    if any(part in {".git", ".github"} for part in file.relative_to(ROOT).parts):
+    relative_parts = file.relative_to(ROOT).parts
+
+    if any(part in {".git", ".github"} for part in relative_parts):
         continue
 
     if file.suffix.lower() not in IMAGE_EXTENSIONS:
         continue
 
     try:
-        # Keep existing PNGs.
-        if file.suffix.lower() == ".png":
-            with Image.open(file) as img:
-                width, height = img.size
+        with Image.open(file) as image:
+            dimensions = image.size
+    except (OSError, ValueError):
+        print(f"Skipping invalid image: {file}")
+        continue
 
-            png_images.append(StructImg(
-                name=file.name,
-                source=file,
-                download_url=download_url(file),
-                dimension=(width, height),
-            ))
-            continue
-
-        # Convert non-PNG images to PNG.
-        png_path = file.with_suffix(".png")
-
-        if png_path.exists():
-            print(f"Skipped {file.name}: {png_path.name} already exists")
-            continue
-
-        with Image.open(file) as img:
-            img.load()
-
-            if img.mode not in {"RGB", "RGBA"}:
-                img = img.convert("RGBA" if "transparency" in img.info else "RGB")
-
-            img.save(png_path, format="PNG")
-
-        # Verify the converted PNG before deleting the original.
-        with Image.open(png_path) as img:
-            img.verify()
-
-        with Image.open(png_path) as img:
-            width, height = img.size
-
-        # Delete the non-PNG file after successful conversion.
-        file.unlink()
-
-        png_images.append(StructImg(
-            name=png_path.name,
-            source=png_path,
-            download_url=download_url(png_path),
-            dimension=(width, height),
-        ))
-
-    except Exception as exc:
-        print(f"Failed to process {file.name}: {exc}")
+    images.append(StructImg(
+        name=file.name,
+        source=file,
+        dimension=dimensions,
+        # download_url=download_url(file),
+    ))
 
 
-# Calculate the total repository content size after conversion.
+# Calculate total repository content size.
 file_bytes = sum(
     file.stat().st_size
     for file in ROOT.rglob("*")
@@ -174,8 +165,7 @@ file_bytes = sum(
     and not any(part in {".git", ".github"} for part in file.relative_to(ROOT).parts)
 )
 
-
-# Generate Readme
+# Generate README content.
 content = "\n\n".join((
     "<div align='center'>"
     "<h1>With This Desktop, I Summon...</h1>"
@@ -184,16 +174,20 @@ content = "\n\n".join((
     "activating neurons, and destroying your disk space. "
     "Special grade backgrounds only. Nah, I'd touch grass.</p>"
     "</div>",
+
     "<div align='center'>"
     f"{badge('Repository Size', format_size(file_bytes), 'github')} "
-    f"{badge('Wallpapers', str(len(png_images)), 'googlephotos')}"
+    f"{badge('Wallpapers', str(len(images)), 'googlephotos')}"
     "</div>",
+
     "<h2 align='center'>Domain Expansion: Wallpaper Gallery</h2>",
-    gallery(png_images),
+
+    gallery(images),
 ))
 
+README_DIR.mkdir(parents=True, exist_ok=True)
 README_FILE.write_text(content + "\n", encoding="utf-8")
 
 print(f"README generated: {README_FILE}")
-print(f"Wallpapers: {len(png_images)}")
+print(f"Wallpapers: {len(images)}")
 print(f"Repository content size: {format_size(file_bytes)}")
