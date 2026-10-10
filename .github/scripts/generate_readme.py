@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Generate the wallpaper repository README."""
+
 
 import os
+
+
 from html import escape
 from pathlib import Path
 from urllib.parse import quote
-
 from PIL import Image
 
 
@@ -13,13 +14,10 @@ BADGE_BG = "30363d"
 BADGE_ACCENT = "7c6ff7"
 REPOSITORY = os.environ.get("GITHUB_REPOSITORY", "kharkwalsuraj/wallpapers")
 BRANCH = os.environ.get("GITHUB_REF_NAME", "main")
-
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".avif", ".gif", ".bmp", ".tif", ".tiff"}
-
 ROOT = Path(__file__).resolve().parents[2]
 README_DIR = ROOT / ".github"
 README_FILE = README_DIR / "README.md"
-
 COLUMNS = 2
 FALLBACK_ASPECT_RATIO = 16 / 9
 
@@ -47,22 +45,75 @@ def badge(key: str, value: str, icon: str = "") -> str:
     )
 
 
+def ensure_png(image_path: Path) -> Path:
+    """Convert an image to PNG and return its final path."""
+    image_path = Path(image_path)
+
+    with Image.open(image_path) as image:
+        if image.format == "PNG":
+            return image_path
+
+        image.load()
+        has_alpha = ("A" in image.getbands() or "transparency" in image.info)
+        converted = image.convert("RGBA" if has_alpha else "RGB")
+
+    png_path = image_path.with_suffix(".png")
+
+    if png_path.exists():
+        raise FileExistsError(f"Cannot convert {image_path}: {png_path} already exists")
+
+    converted.save(png_path, format="PNG")
+    image_path.unlink()
+
+    return png_path
+
+
+def get_images() -> list[Path]:
+    """Find repository images, convert them to PNG, and return their paths."""
+    images = []
+
+    for directory, dirs, names in os.walk(ROOT):
+        dirs[:] = [d for d in dirs if d not in {".git", ".github"}]
+
+        for name in names:
+            path = Path(directory) / name
+
+            if path.suffix.lower() in IMAGE_EXTENSIONS:
+                images.append(ensure_png(path))
+
+    return images
+
+
 def get_files() -> list[Path]:
-    """List repository files without traversing Git internals or .github."""
+    """List repository files excluding Git internals and .github."""
     files = []
 
     for directory, dirs, names in os.walk(ROOT):
-        dirs[:] = sorted(d for d in dirs if d not in {".git", ".github"})
+        dirs[:] = [d for d in dirs if d not in {".git", ".github"}]
         files.extend(Path(directory) / name for name in names)
 
-    return sorted(files, key=lambda p: p.relative_to(ROOT).as_posix().casefold())
+    return files
 
 
 def image_dimensions(path: Path) -> tuple[int, int]:
-    """Return the original image dimensions."""
+    """Return the image width and height."""
     with Image.open(path) as image:
         return image.size
 
+def get_images() -> list[Path]:
+    """Find all repository images, convert them to PNG, and return their paths."""
+    images = []
+
+    for directory, dirs, names in os.walk(ROOT):
+        dirs[:] = [d for d in dirs if d not in {".git", ".github"}]
+
+        for name in names:
+            path = Path(directory) / name
+
+            if path.suffix.lower() in IMAGE_EXTENSIONS:
+                images.append(ensure_png(path))
+
+    return images
 
 def preview_url(path: Path) -> str:
     """Return an image path relative to .github/README.md."""
@@ -144,8 +195,7 @@ def generate_readme() -> None:
     """Generate .github/README.md."""
     README_DIR.mkdir(parents=True, exist_ok=True)
 
-    files = get_files()
-    images = [p for p in files if p.suffix.lower() in IMAGE_EXTENSIONS]
+    images = get_images()
 
     content = "\n\n".join((
         "<div align='center'>"
