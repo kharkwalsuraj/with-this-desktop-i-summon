@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import os
-import zipfile
 from dataclasses import dataclass
 from html import escape
 from pathlib import Path
@@ -16,7 +15,6 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".avif", ".gif", ".bmp", "
 ROOT = Path(__file__).resolve().parents[2]
 README_DIR = ROOT / ".github"
 README_FILE = README_DIR / "README.md"
-WALLPAPERS_ZIP = README_DIR / "wallpapers.zip"
 REPOSITORY = os.environ.get("GITHUB_REPOSITORY", "kharkwalsuraj/wallpapers")
 BRANCH = os.environ.get("GITHUB_REF_NAME", "main")
 
@@ -58,9 +56,7 @@ def preview_url(path: Path) -> str:
     return quote(relative.replace(os.sep, "/"), safe="/")
 
 
-# TODO: Revisit individual downloads.
-# I had trouble getting GitHub to download original images reliably
-# instead of opening them in the browser. Contributions are welcome!
+# TODO: individual downloads.
 #
 # def download_url(path: Path) -> str:
 #     image_path = quote(path.relative_to(ROOT).as_posix(), safe="/")
@@ -155,11 +151,7 @@ file_bytes = sum(
 
 # Generate Readme
 README_DIR.mkdir(parents=True, exist_ok=True)
-
-# Repository ZIP download.
 repository_zip = (f"https://github.com/{REPOSITORY}/archive/refs/heads/" f"{quote(BRANCH, safe='')}.zip")
-
-# Generate README content.
 content = "\n\n".join((
     "<div align='center'>"
     "<h1>With This Desktop, I Summon...</h1>"
@@ -183,10 +175,9 @@ content = "\n\n".join((
     gallery(images),
 ))
 
+README_DIR.mkdir(parents=True, exist_ok=True)
 README_FILE.write_text(content + "\n", encoding="utf-8")
 
 print(f"README generated: {README_FILE}")
 print(f"Wallpapers: {len(images)}")
 print(f"Repository content size: {format_size(file_bytes)}")
-print(f"Wallpaper ZIP generated: {WALLPAPERS_ZIP}")
-print(f"Wallpaper ZIP size: {format_size(WALLPAPERS_ZIP.stat().st_size)}")
